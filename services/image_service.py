@@ -3,13 +3,13 @@ import httpx
 import urllib.parse
 import random
 from groq import AsyncGroq
-import os
+from config import config
 
 log = logging.getLogger("image_service")
 
 async def translate_to_english(prompt: str) -> str:
     try:
-        client = AsyncGroq(api_key=os.getenv("GROQ_API_KEY"))
+        client = AsyncGroq(api_key=config.GROQ_API_KEY)
         response = await client.chat.completions.create(
             model="llama-3.3-70b-versatile",
             messages=[{
@@ -30,7 +30,7 @@ async def generate_image(prompt: str, width: int = 1024, height: int = 1024) -> 
     encoded = urllib.parse.quote(english_prompt, safe="")
     seed = random.randint(1, 999999)
     url = f"https://image.pollinations.ai/prompt/{encoded}?width={width}&height={height}&nologo=true&seed={seed}&model=flux"
-    log.info(f"Генерация: '{english_prompt[:60]}...'")
+    log.info(f"Генерация: '{english_prompt[:60]}'")
 
     for attempt in range(3):
         try:
