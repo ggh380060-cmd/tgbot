@@ -11,6 +11,7 @@ import base64
 import urllib.parse
 import aiohttp
 from groq import AsyncGroq
+import asyncio
 from config import config
 
 log = logging.getLogger("ai_service")
@@ -101,47 +102,60 @@ async def analyze_photo(image_bytes: bytes, question: str = None) -> str:
 # ══════════════════════════════════════════════════════════════
 
 async def generate_image(prompt: str) -> bytes:
+    """
+    Генерирует картинку — пробует несколько бесплатных сервисов по очереди.
+    """
     import random
-    errors = []
-    
-    # Пробуем 3 раза — Pollinations иногда лагает
-    for attempt in range(3):
+
+    encoded = urllib.parse.quote(prompt)
+    seed = random.randint(1, 999999)
+    w = config.IMAGE_WIDTH
+    h = config.IMAGE_HEIGHT
+
+    # Список бесплатных сервисов — пробуем по очереди
+    urls = [
+        # Вариант 1 — Pollinations с другой моделью
+        f"https://image.pollinations.ai/prompt/{encoded}?width={w}&height={h}&seed={seed}&model=flux&nologo=true",
+        # Вариант 2 — Pollinations стандартный
+        f"https://image.pollinations.ai/prompt/{encoded}?width={w}&height={h}&seed={seed+1}&nologo=true",
+        # Вариант 3 — Pollinations с меньшим размером (быстрее)
+        f"https://image.pollinations.ai/prompt/{encoded}?width=512&height=512&seed={seed+2}&nologo=true",
+    ]
+
+    last_error = None
+
+    for i, url in enumerate(urls):
         try:
-            encoded = urllib.parse.quote(prompt)
-            w = config.IMAGE_WIDTH
-            h = config.IMAGE_HEIGHT
-            seed = random.randint(1, 999999)
-
-            url = (
-                f"https://image.pollinations.ai/prompt/{encoded}"
-                f"?width={w}&height={h}&seed={seed}&nologo=true&enhance=true"
-            )
-
-            log.info(f"Попытка {attempt+1}/3: {prompt[:50]}...")
+            log.info(f"Попытка {i+1}/{len(urls)}: {url[:80]}...")
 
             async with aiohttp.ClientSession() as session:
                 async with session.get(
                     url,
-                    timeout=aiohttp.ClientTimeout(total=60)
+                    timeout=aiohttp.ClientTimeout(total=45),
                 ) as resp:
                     if resp.status == 200:
-                        image_bytes = await resp.read()
-                        if len(image_bytes) > 1000:  # не пустой файл
-                            log.info(f"Картинка получена: {len(image_bytes)} байт")
-                            return image_bytes
-                    errors.append(f"статус {resp.status}")
+                        data = await resp.read()
+                        if len(data) > 5000:  # нормальная картинка > 5KB
+                            log.info(f"✅ Картинка получена с попытки {i+1}: {len(data)} байт")
+                            return data
+                        else:
+                            last_error = f"Слишком маленький ответ: {len(data)} байт"
+                    else:
+                        last_error = f"HTTP {resp.status}"
+                        log.warning(f"Попытка {i+1} — статус {resp.status}")
 
+        except asyncio.TimeoutError:
+            last_error = "Таймаут"
+            log.warning(f"Попытка {i+1} — таймаут")
         except Exception as e:
-            errors.append(str(e))
-            log.warning(f"Попытка {attempt+1} не удалась: {e}")
+            last_error = str(e)
+            log.warning(f"Попытка {i+1} — ошибка: {e}")
 
-        # Пауза перед следующей попыткой
-        if attempt < 2:
-            import asyncio
-            await asyncio.sleep(3)
+        # Пауза между попытками
+        if i < len(urls) - 1:
+            await asyncio.sleep(2)
 
-    raise Exception(f"Все 3 попытки не удались: {errors}")
-# ══════════════════════════════════════════════════════════════
+    raise Exception(f"Все попытки не удались. Последняя ошибка: {last_error}")# ══════════════════════════════════════════════════════════════
 #  УЛУЧШЕНИЕ ПРОМПТА для картинок
 # ══════════════════════════════════════════════════════════════
 
