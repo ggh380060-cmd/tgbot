@@ -101,46 +101,46 @@ async def analyze_photo(image_bytes: bytes, question: str = None) -> str:
 # ══════════════════════════════════════════════════════════════
 
 async def generate_image(prompt: str) -> bytes:
-    """
-    Генерирует картинку через Pollinations.AI.
-    - Абсолютно бесплатно
-    - Без регистрации
-    - Без API ключей
-    - Без лимитов
-    Возвращает байты PNG-картинки.
-    """
-    try:
-        # Pollinations принимает промпт прямо в URL
-        encoded = urllib.parse.quote(prompt)
-        w = config.IMAGE_WIDTH
-        h = config.IMAGE_HEIGHT
+    import random
+    errors = []
+    
+    # Пробуем 3 раза — Pollinations иногда лагает
+    for attempt in range(3):
+        try:
+            encoded = urllib.parse.quote(prompt)
+            w = config.IMAGE_WIDTH
+            h = config.IMAGE_HEIGHT
+            seed = random.randint(1, 999999)
 
-        # seed=random чтобы каждый раз разная картинка
-        import random
-        seed = random.randint(1, 999999)
+            url = (
+                f"https://image.pollinations.ai/prompt/{encoded}"
+                f"?width={w}&height={h}&seed={seed}&nologo=true&enhance=true"
+            )
 
-        url = (
-            f"https://image.pollinations.ai/prompt/{encoded}"
-            f"?width={w}&height={h}&seed={seed}&nologo=true&enhance=true"
-        )
+            log.info(f"Попытка {attempt+1}/3: {prompt[:50]}...")
 
-        log.info(f"Запрос картинки: {prompt[:50]}...")
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    url,
+                    timeout=aiohttp.ClientTimeout(total=60)
+                ) as resp:
+                    if resp.status == 200:
+                        image_bytes = await resp.read()
+                        if len(image_bytes) > 1000:  # не пустой файл
+                            log.info(f"Картинка получена: {len(image_bytes)} байт")
+                            return image_bytes
+                    errors.append(f"статус {resp.status}")
 
-        async with aiohttp.ClientSession() as session:
-            # Pollinations может думать 10-30 секунд — ставим большой таймаут
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=60)) as resp:
-                if resp.status != 200:
-                    raise Exception(f"Pollinations вернул статус {resp.status}")
+        except Exception as e:
+            errors.append(str(e))
+            log.warning(f"Попытка {attempt+1} не удалась: {e}")
 
-                image_bytes = await resp.read()
-                log.info(f"Картинка получена: {len(image_bytes)} байт")
-                return image_bytes
+        # Пауза перед следующей попыткой
+        if attempt < 2:
+            import asyncio
+            await asyncio.sleep(3)
 
-    except Exception as e:
-        log.error(f"Ошибка генерации картинки: {e}")
-        raise
-
-
+    raise Exception(f"Все 3 попытки не удались: {errors}")
 # ══════════════════════════════════════════════════════════════
 #  УЛУЧШЕНИЕ ПРОМПТА для картинок
 # ══════════════════════════════════════════════════════════════
