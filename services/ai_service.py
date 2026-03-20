@@ -3,29 +3,35 @@ import base64
 import urllib.parse
 import asyncio
 import aiohttp
+import random
 from groq import AsyncGroq
 from config import config
 
 log = logging.getLogger("ai_service")
 groq_client = AsyncGroq(api_key=config.GROQ_API_KEY)
 
-SYSTEM_PROMPT = "You are a helpful AI assistant. Reply in the language the user writes in. Be concise. No markdown."
+SYSTEM_PROMPT = """Ты умный, дружелюбный и остроумный AI-ассистент. 
+Отвечай на языке пользователя (русский или другой).
+Будь полезным, конкретным и по делу. 
+Можешь шутить и быть неформальным, но всегда отвечай по существу.
+Если не знаешь ответа — честно скажи об этом.
+Не используй markdown разметку (никаких **, ## и т.д.)."""
 
 async def chat(messages: list) -> str:
-    full = [{"role": "system", "content": SYSTEM_PROMPT}] + messages
+    full = [{"role": "system", "content": SYSTEM_PROMPT}] + messages[-20:]
     resp = await groq_client.chat.completions.create(
         model=config.GROQ_MODEL,
         messages=full,
         max_tokens=2048,
-        temperature=0.8,
+        temperature=0.9,
     )
     answer = resp.choices[0].message.content
-    log.info(f"Groq: {len(answer)} chars")
+    log.info(f"Groq ответ: {len(answer)} символов")
     return answer
 
 async def analyze_photo(image_bytes: bytes, question: str = None) -> str:
     if not question:
-        question = "Describe this photo in detail in Russian."
+        question = "Подробно опиши что изображено на фото. Отвечай на русском."
     b64 = base64.b64encode(image_bytes).decode("utf-8")
     resp = await groq_client.chat.completions.create(
         model="meta-llama/llama-4-scout-17b-16e-instruct",
@@ -37,42 +43,45 @@ async def analyze_photo(image_bytes: bytes, question: str = None) -> str:
     )
     return resp.choices[0].message.content
 
-async def generate_image(prompt: str) -> bytes:
-    import random
-    seed = random.randint(1, 999999)
-    encoded = urllib.parse.quote(prompt)
-    urls = [
-        f"https://image.pollinations.ai/prompt/{encoded}?model=flux-schnell&seed={seed}&nologo=true&width=1024&height=1024",
-        f"https://image.pollinations.ai/prompt/{encoded}?model=flux&seed={seed}&nologo=true&width=1024&height=1024",
-        f"https://image.pollinations.ai/prompt/{encoded}?model=turbo&seed={seed}&nologo=true&width=512&height=512",
-    ]
-    for i, url in enumerate(urls):
-        try:
-            log.info(f"Attempt {i+1}/3")
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, timeout=aiohttp.ClientTimeout(total=60)) as resp:
-                    if resp.status == 200:
-                        data = await resp.read()
-                        if len(data) > 5000:
-                            log.info(f"Image ready: {len(data)} bytes")
-                            return data
-                    log.warning(f"Status {resp.status}")
-        except Exception as e:
-            log.warning(f"Attempt {i+1} error: {e}")
-        await asyncio.sleep(3)
-    raise Exception("Failed to generate image.")
-
 async def improve_image_prompt(user_prompt: str) -> str:
     try:
         resp = await groq_client.chat.completions.create(
             model="llama-3.1-8b-instant",
             messages=[
-                {"role": "system", "content": "Improve this image prompt for AI generation. Translate to English if needed. Add artistic details. Reply ONLY with the prompt. Max 100 words."},
+                {"role": "system", "content": "Translate to English if needed and improve this image generation prompt. Add visual details, lighting, style. Reply ONLY with the improved prompt, max 80 words."},
                 {"role": "user", "content": user_prompt},
             ],
-            max_tokens=150,
+            max_tokens=120,
             temperature=0.7,
         )
         return resp.choices[0].message.content.strip()
     except Exception:
         return user_prompt
+
+async def generate_image(prompt: str) -> bytes:
+    seed = random.randint(1, 999999)
+    encoded = urllib.parse.quote(prompt, safe="")
+
+    urls = [
+        f"https://image.pollinations.ai/prompt/{encoded}?width=1024&height=1024&nologo=true&seed={seed}",
+        f"https://pollinations.ai/p/{encoded}?width=1024&height=1024&seed={seed}",
+        f"https://image.pollinations.ai/prompt/{encoded}?width=512&height=512&nologo=true&seed={seed}",
+    ]
+
+    async with aiohttp.ClientSession() as session:
+        for i, url in enumerate(urls):
+            try:
+                log.info(f"Генерация картинки попытка {i+1}/3")
+                async with session.get(url, timeout=aiohttp.ClientTimeout(total=90), allow_redirects=True) as resp:
+                    content_type = resp.headers.get("content-type", "")
+                    if resp.status == 200 and "image" in content_type:
+                        data = await resp.read()
+                        if len(data) > 10000:
+                            log.info(f"Картинка готова: {len(data)} байт")
+                            return data
+                    log.warning(f"Попытка {i+1}: статус {resp.status}, тип {content_type}")
+            except Exception as e:
+                log.warning(f"Попытка {i+1} ошибка: {e}")
+            await asyncio.sleep(2)
+
+    raise Exception("Не удалось сгенерировать картинку.")
