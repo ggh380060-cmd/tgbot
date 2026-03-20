@@ -53,41 +53,37 @@ async def analyze_photo(image_bytes: bytes, question: str = None) -> str:
 
 async def generate_image(prompt: str) -> bytes:
     import random
-    api_url = "https://router.huggingface.co/hf-inference/models/black-forest-labs/FLUX.1-schnell/v1/images/generations"
-    headers = {"Authorization": f"Bearer {config.HF_TOKEN}"}
-    payload = {"prompt": prompt, "num_inference_steps": 4}
+    import asyncio
 
-    for attempt in range(3):
+    seed = random.randint(1, 999999)
+    encoded = urllib.parse.quote(prompt)
+
+    # Разные модели Pollinations
+    urls = [
+        f"https://image.pollinations.ai/prompt/{encoded}?model=flux-schnell&seed={seed}&nologo=true&width=1024&height=1024",
+        f"https://image.pollinations.ai/prompt/{encoded}?model=flux&seed={seed}&nologo=true&width=1024&height=1024",
+        f"https://image.pollinations.ai/prompt/{encoded}?model=turbo&seed={seed}&nologo=true&width=512&height=512",
+    ]
+
+    for i, url in enumerate(urls):
         try:
-            log.info(f"HF попытка {attempt+1}/3: {prompt[:60]}...")
+            log.info(f"Попытка {i+1}/3...")
             async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    api_url,
-                    headers=headers,
-                    json=payload,
+                async with session.get(
+                    url,
                     timeout=aiohttp.ClientTimeout(total=60),
                 ) as resp:
                     if resp.status == 200:
                         data = await resp.read()
                         if len(data) > 5000:
-                            log.info(f"Картинка готова: {len(data)} байт")
+                            log.info(f"Готово: {len(data)} байт")
                             return data
-                    elif resp.status == 503:
-                        log.warning("Модель загружается, ждём 10 сек...")
-                        await asyncio.sleep(10)
-                        continue
-                    else:
-                        text = await resp.text()
-                        log.warning(f"HF статус {resp.status}: {text[:100]}")
-        except asyncio.TimeoutError:
-            log.warning(f"Попытка {attempt+1} — таймаут")
+                    log.warning(f"Статус {resp.status}")
         except Exception as e:
-            log.warning(f"Попытка {attempt+1} — ошибка: {e}")
-        if attempt < 2:
-            await asyncio.sleep(5)
+            log.warning(f"Попытка {i+1} ошибка: {e}")
+        await asyncio.sleep(3)
 
-    raise Exception("Не удалось сгенерировать картинку. Попробуй позже.")
-
+    raise Exception("Не удалось сгенерировать картинку.")
 
 async def improve_image_prompt(user_prompt: str) -> str:
     try:
