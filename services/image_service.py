@@ -35,7 +35,7 @@ async def generate_image(prompt: str, width: int = 1024, height: int = 1024) -> 
     seed = random.randint(1, 999999)
 
     urls = [
-        f"https://image.pollinations.ai/prompt/{encoded}?width={width}&height={height}&nologo=true&seed={seed}&model=flux",
+        f"https://image.pollinations.ai/prompt/{encoded}?width={width}&height={height}&nologo=true&seed={seed}",
         f"https://pollinations.ai/p/{encoded}?width={width}&height={height}&seed={seed}",
     ]
 
