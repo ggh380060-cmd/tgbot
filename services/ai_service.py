@@ -103,59 +103,54 @@ async def analyze_photo(image_bytes: bytes, question: str = None) -> str:
 
 async def generate_image(prompt: str) -> bytes:
     """
-    Генерирует картинку — пробует несколько бесплатных сервисов по очереди.
+    Генерирует картинку через Hugging Face (бесплатно).
+    Модель: FLUX.1-schnell — быстрая и качественная.
     """
-    import random
+    import asyncio
+    import json
 
-    encoded = urllib.parse.quote(prompt)
-    seed = random.randint(1, 999999)
-    w = config.IMAGE_WIDTH
-    h = config.IMAGE_HEIGHT
+    api_url = "https://api-inference.huggingface.co/models/black-forest-labs/FLUX.1-schnell"
+    headers = {"Authorization": f"Bearer {config.HF_TOKEN}"}
+    payload = {"inputs": prompt}
 
-    # Список бесплатных сервисов — пробуем по очереди
-    urls = [
-        # Вариант 1 — Pollinations с другой моделью
-        f"https://image.pollinations.ai/prompt/{encoded}?width={w}&height={h}&seed={seed}&model=flux&nologo=true",
-        # Вариант 2 — Pollinations стандартный
-        f"https://image.pollinations.ai/prompt/{encoded}?width={w}&height={h}&seed={seed+1}&nologo=true",
-        # Вариант 3 — Pollinations с меньшим размером (быстрее)
-        f"https://image.pollinations.ai/prompt/{encoded}?width=512&height=512&seed={seed+2}&nologo=true",
-    ]
-
-    last_error = None
-
-    for i, url in enumerate(urls):
+    for attempt in range(3):
         try:
-            log.info(f"Попытка {i+1}/{len(urls)}: {url[:80]}...")
+            log.info(f"HF попытка {attempt+1}/3: {prompt[:60]}...")
 
             async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    url,
-                    timeout=aiohttp.ClientTimeout(total=45),
+                async with session.post(
+                    api_url,
+                    headers=headers,
+                    json=payload,
+                    timeout=aiohttp.ClientTimeout(total=60),
                 ) as resp:
+
                     if resp.status == 200:
                         data = await resp.read()
-                        if len(data) > 5000:  # нормальная картинка > 5KB
-                            log.info(f"✅ Картинка получена с попытки {i+1}: {len(data)} байт")
+                        if len(data) > 5000:
+                            log.info(f"✅ Картинка готова: {len(data)} байт")
                             return data
-                        else:
-                            last_error = f"Слишком маленький ответ: {len(data)} байт"
+
+                    elif resp.status == 503:
+                        # Модель загружается — подождём
+                        text = await resp.text()
+                        log.warning(f"Модель загружается, ждём 10 сек...")
+                        await asyncio.sleep(10)
+                        continue
+
                     else:
-                        last_error = f"HTTP {resp.status}"
-                        log.warning(f"Попытка {i+1} — статус {resp.status}")
+                        text = await resp.text()
+                        log.warning(f"HF статус {resp.status}: {text[:100]}")
 
         except asyncio.TimeoutError:
-            last_error = "Таймаут"
-            log.warning(f"Попытка {i+1} — таймаут")
+            log.warning(f"Попытка {attempt+1} — таймаут")
         except Exception as e:
-            last_error = str(e)
-            log.warning(f"Попытка {i+1} — ошибка: {e}")
+            log.warning(f"Попытка {attempt+1} — ошибка: {e}")
 
-        # Пауза между попытками
-        if i < len(urls) - 1:
-            await asyncio.sleep(2)
+        if attempt < 2:
+            await asyncio.sleep(5)
 
-    raise Exception(f"Все попытки не удались. Последняя ошибка: {last_error}")# ══════════════════════════════════════════════════════════════
+    raise Exception("Не удалось сгенерировать картинку. Попробуй позже.")══════════════════════════════════════════════════════════════
 #  УЛУЧШЕНИЕ ПРОМПТА для картинок
 # ══════════════════════════════════════════════════════════════
 

@@ -17,6 +17,7 @@ class Config:
     # Картинки — Pollinations.AI (вообще без ключей)
     IMAGE_WIDTH: int = 1024
     IMAGE_HEIGHT: int = 1024
+    HF_TOKEN: str = ""
 
     # Лимиты
     MAX_HISTORY: int = 20
@@ -45,4 +46,5 @@ config = Config(
     MAX_HISTORY=int(os.getenv("MAX_HISTORY", "20")),
     MAX_CHAT_PER_DAY=int(os.getenv("MAX_CHAT_PER_DAY", "100")),
     MAX_IMAGE_PER_DAY=int(os.getenv("MAX_IMAGE_PER_DAY", "20")),
+    HF_TOKEN=os.getenv("HF_TOKEN", ""),
 )
