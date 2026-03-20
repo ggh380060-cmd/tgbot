@@ -53,9 +53,9 @@ async def analyze_photo(image_bytes: bytes, question: str = None) -> str:
 
 async def generate_image(prompt: str) -> bytes:
     import random
-    api_url = "https://api-inference.huggingface.co/models/black-forest-labs/FLUX.1-schnell"
+    api_url = "https://router.huggingface.co/hf-inference/models/black-forest-labs/FLUX.1-schnell/v1/images/generations"
     headers = {"Authorization": f"Bearer {config.HF_TOKEN}"}
-    payload = {"inputs": prompt}
+    payload = {"prompt": prompt, "num_inference_steps": 4}
 
     for attempt in range(3):
         try:
