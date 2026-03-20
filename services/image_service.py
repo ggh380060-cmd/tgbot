@@ -3,6 +3,7 @@ import httpx
 import urllib.parse
 import random
 import os
+import asyncio
 
 log = logging.getLogger("image_service")
 
@@ -35,7 +36,7 @@ async def generate_image(prompt: str, width: int = 1024, height: int = 1024) -> 
     seed = random.randint(1, 999999)
 
     urls = [
-        f"https://image.pollinations.ai/prompt/{encoded}?width={width}&height={height}&nologo=true&seed={seed}",
+        f"https://image.pollinations.ai/prompt/{encoded}?width={width}&height={height}&nologo=true&model=flux&seed={seed}",
         f"https://pollinations.ai/p/{encoded}?width={width}&height={height}&seed={seed}",
     ]
 
@@ -48,9 +49,17 @@ async def generate_image(prompt: str, width: int = 1024, height: int = 1024) -> 
                     if r.status_code == 200 and "image" in content_type and len(r.content) > 10000:
                         log.info(f"Картинка готова, размер: {len(r.content)} байт")
                         return r.content
+                    # Логируем тело ошибки чтобы видеть причину
                     log.warning(f"Статус {r.status_code}, тип {content_type}, размер {len(r.content)}, попытка {attempt+1}/2")
+                    if r.status_code != 200:
+                        log.warning(f"Тело ответа: {r.text[:300]}")
+                    # Задержка перед следующей попыткой
+                    if attempt == 0:
+                        await asyncio.sleep(3)
                 except httpx.TimeoutException:
                     log.error(f"Таймаут, попытка {attempt+1}/2")
+                    if attempt == 0:
+                        await asyncio.sleep(3)
                 except Exception as e:
                     log.error(f"Ошибка: {e}, попытка {attempt+1}/2")
 
