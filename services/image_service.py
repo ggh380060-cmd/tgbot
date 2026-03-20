@@ -29,19 +29,23 @@ async def generate_image(prompt: str, width: int = 1024, height: int = 1024) -> 
     english_prompt = await translate_to_english(prompt)
     encoded = urllib.parse.quote(english_prompt, safe="")
     seed = random.randint(1, 999999)
-    url = f"https://image.pollinations.ai/prompt/{encoded}?width={width}&height={height}&nologo=true&seed={seed}&model=flux"
-    log.info(f"Генерация: '{english_prompt[:60]}'")
 
-    for attempt in range(3):
-        try:
-            async with httpx.AsyncClient(timeout=90.0) as client:
-                r = await client.get(url, follow_redirects=True)
-                if r.status_code == 200 and len(r.content) > 1000:
-                    log.info(f"Картинка готова, размер: {len(r.content)} байт")
-                    return r.content
-                log.warning(f"Pollinations статус {r.status_code}, попытка {attempt+1}/3")
-        except httpx.TimeoutException:
-            log.error(f"Таймаут, попытка {attempt+1}/3")
-        except Exception as e:
-            log.error(f"Ошибка: {e}, попытка {attempt+1}/3")
+    urls = [
+        f"https://image.pollinations.ai/prompt/{encoded}?width={width}&height={height}&nologo=true&seed={seed}",
+        f"https://pollinations.ai/p/{encoded}?width={width}&height={height}&seed={seed}",
+    ]
+
+    for url in urls:
+        for attempt in range(2):
+            try:
+                async with httpx.AsyncClient(timeout=90.0) as client:
+                    r = await client.get(url, follow_redirects=True)
+                    if r.status_code == 200 and len(r.content) > 1000:
+                        log.info(f"Картинка готова, размер: {len(r.content)} байт")
+                        return r.content
+                    log.warning(f"Статус {r.status_code}, попытка {attempt+1}/2, url: {url[:60]}")
+            except httpx.TimeoutException:
+                log.error(f"Таймаут, попытка {attempt+1}/2")
+            except Exception as e:
+                log.error(f"Ошибка: {e}")
     return None
