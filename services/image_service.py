@@ -2,50 +2,32 @@
 import httpx
 import urllib.parse
 import random
-from groq import AsyncGroq
-from config import config
 
 log = logging.getLogger("image_service")
 
-async def translate_to_english(prompt: str) -> str:
-    try:
-        client = AsyncGroq(api_key=config.GROQ_API_KEY)
-        response = await client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=[{
-                "role": "user",
-                "content": f"Translate this image description to English. Reply with ONLY the translation, nothing else: {prompt}"
-            }],
-            max_tokens=200,
-        )
-        result = response.choices[0].message.content.strip()
-        log.info(f"Перевод: '{prompt}' -> '{result}'")
-        return result
-    except Exception as e:
-        log.error(f"Ошибка перевода: {e}")
-        return prompt
-
 async def generate_image(prompt: str, width: int = 1024, height: int = 1024) -> bytes | None:
-    english_prompt = await translate_to_english(prompt)
-    encoded = urllib.parse.quote(english_prompt, safe="")
+    encoded = urllib.parse.quote(prompt, safe="")
     seed = random.randint(1, 999999)
-
+    
     urls = [
-        f"https://image.pollinations.ai/prompt/{encoded}?width={width}&height={height}&nologo=true&seed={seed}",
+        f"https://image.pollinations.ai/prompt/{encoded}?width={width}&height={height}&nologo=true&seed={seed}&model=flux",
         f"https://pollinations.ai/p/{encoded}?width={width}&height={height}&seed={seed}",
     ]
 
-    for url in urls:
-        for attempt in range(2):
-            try:
-                async with httpx.AsyncClient(timeout=90.0) as client:
+    async with httpx.AsyncClient(timeout=90.0) as client:
+        for i, url in enumerate(urls):
+            for attempt in range(2):
+                try:
                     r = await client.get(url, follow_redirects=True)
-                    if r.status_code == 200 and len(r.content) > 1000:
+                    content_type = r.headers.get("content-type", "")
+                    if r.status_code == 200 and "image" in content_type and len(r.content) > 10000:
                         log.info(f"Картинка готова, размер: {len(r.content)} байт")
                         return r.content
-                    log.warning(f"Статус {r.status_code}, попытка {attempt+1}/2, url: {url[:60]}")
-            except httpx.TimeoutException:
-                log.error(f"Таймаут, попытка {attempt+1}/2")
-            except Exception as e:
-                log.error(f"Ошибка: {e}")
+                    log.warning(f"Статус {r.status_code}, тип {content_type}, размер {len(r.content)}, попытка {attempt+1}/2, url: {url[:60]}")
+                except httpx.TimeoutException:
+                    log.error(f"Таймаут, попытка {attempt+1}/2")
+                except Exception as e:
+                    log.error(f"Ошибка: {e}, попытка {attempt+1}/2")
+
+    log.error("Все попытки провалились")
     return None
